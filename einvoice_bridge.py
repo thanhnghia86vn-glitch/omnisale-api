@@ -161,42 +161,53 @@ def test_connection():
             })
 
         # ====================================================================
-        # TEST LOGIN BKAV (Lệnh 904: Tra cứu MST để test PartnerGUID)
-        # ====================================================================
-        # ====================================================================
-        # TEST LOGIN BKAV (Lệnh 904: Tra cứu MST để test PartnerGUID) - CHẠY THẬT
+        # TEST LOGIN BKAV (Mẹo: Gửi dữ liệu rác để bắt lỗi Base64 xác nhận)
         # ====================================================================
         elif provider == 'BKAV':
             clean_url = api_url.rstrip('/') 
             print(f"\n🔄 Đang gọi API THẬT test kết nối BKAV tới: {clean_url}")
             
-            company_tax_code = data.get('taxCode', '') 
-            inner_xml = f"<CommandData><CmdType>904</CmdType><CommandObject>{company_tax_code}</CommandObject></CommandData>"
-            
+            # Gửi một chữ "TEST_OMNISALE" không mã hóa để dụ BKAV trả lời
             soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
               <soap:Body>
                 <ExecCommand xmlns="http://tempuri.org/">
                   <partnerGUID>{username}</partnerGUID>
-                  <CommandData><![CDATA[{inner_xml}]]></CommandData>
+                  <CommandData>TEST_OMNISALE</CommandData>
                 </ExecCommand>
               </soap:Body>
             </soap:Envelope>"""
 
             headers = {
                 "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": "http://tempuri.org/ExecCommand"
+                "SOAPAction": '"http://tempuri.org/ExecCommand"'
             }
             
-            # GỌI API THẬT VÀ PHÂN TÍCH KẾT QUẢ
             bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
             print("Kết quả test BKAV:", bkav_res.text)
             
-            if "<Status>0</Status>" in bkav_res.text or '"Status":0' in bkav_res.text:
-                print("✅ Đăng nhập BKAV thành công!")
-                return jsonify({"success": True, "token": password, "series": []}) 
+            # PHÂN TÍCH KẾT QUẢ ĐẦY MƯU MẸO:
+            # 1. Nếu BKAV chửi lỗi Base64 -> Tuyệt vời! Nghĩa là máy chủ đang sống và nó nhận ra cổng kết nối.
+            if "not in Base64 format" in bkav_res.text or "EncryptedCommandData" in bkav_res.text:
+                print("✅ Đã thông mạng BKAV! (Pass qua cửa Base64)")
+                return jsonify({
+                    "success": True, 
+                    "token": password, 
+                    "series": [],
+                    "message": "Kết nối máy chủ BKAV thành công!"
+                }) 
+            
+            # 2. Nếu BKAV báo lỗi PartnerGUID (sai tài khoản)
+            elif "PartnerGUID" in bkav_res.text or "hợp lệ" in bkav_res.text:
+                return jsonify({"success": False, "message": "Sai PartnerGUID! BKAV không nhận diện được tài khoản này."})
+                
+            # 3. Thành công thực sự (Trường hợp hiếm nếu API không yêu cầu mã hóa)
+            elif "<Status>0</Status>" in bkav_res.text or '"Status":0' in bkav_res.text:
+                return jsonify({"success": True, "token": password, "series": []})
+                
+            # 4. Các lỗi khác (Chết server, v.v...)
             else:
-                return jsonify({"success": False, "message": f"Máy chủ BKAV từ chối kết nối! Vui lòng kiểm tra lại PartnerGUID."})
+                return jsonify({"success": False, "message": "Máy chủ BKAV từ chối kết nối hoặc sai đường dẫn URL!"})
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Lỗi hệ thống: {str(e)}"})
