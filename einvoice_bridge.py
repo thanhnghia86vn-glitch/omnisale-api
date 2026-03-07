@@ -161,13 +161,13 @@ def test_connection():
             })
 
         # ====================================================================
-        # TEST LOGIN BKAV (Mẹo: Gửi dữ liệu rác để bắt lỗi Base64 xác nhận)
+        # TEST LOGIN BKAV (Móc ruột Base64 để đọc phản hồi)
         # ====================================================================
         elif provider == 'BKAV':
             clean_url = api_url.rstrip('/') 
             print(f"\n🔄 Đang gọi API THẬT test kết nối BKAV tới: {clean_url}")
             
-            # Gửi một chữ "TEST_OMNISALE" không mã hóa để dụ BKAV trả lời
+            # Gửi chữ TEST_OMNISALE để dụ BKAV trả lời
             soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
               <soap:Body>
@@ -184,28 +184,34 @@ def test_connection():
             }
             
             bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
-            print("Kết quả test BKAV:", bkav_res.text)
             
-            # PHÂN TÍCH KẾT QUẢ ĐẦY MƯU MẸO:
-            # 1. Nếu BKAV chửi lỗi Base64 -> Tuyệt vời! Nghĩa là máy chủ đang sống và nó nhận ra cổng kết nối.
-            if "not in Base64 format" in bkav_res.text or "EncryptedCommandData" in bkav_res.text:
-                print("✅ Đã thông mạng BKAV! (Pass qua cửa Base64)")
-                return jsonify({
-                    "success": True, 
-                    "token": password, 
-                    "series": [],
-                    "message": "Kết nối máy chủ BKAV thành công!"
-                }) 
+            # 1. TÌM VÀ CẮT LẤY ĐOẠN MÃ BASE64 TRONG THẺ <ExecCommandResult>
+            import re
+            match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text)
             
-            # 2. Nếu BKAV báo lỗi PartnerGUID (sai tài khoản)
-            elif "PartnerGUID" in bkav_res.text or "hợp lệ" in bkav_res.text:
-                return jsonify({"success": False, "message": "Sai PartnerGUID! BKAV không nhận diện được tài khoản này."})
+            if match:
+                b64_str = match.group(1) # Đây là đoạn mã eyJTdGF0...
+                try:
+                    import base64
+                    # 2. DỊCH MÃ BASE64 THÀNH CHỮ BÌNH THƯỜNG
+                    decoded_text = base64.b64decode(b64_str).decode('utf-8')
+                    print("🔍 Lời nhắn thật sự của BKAV:", decoded_text)
+                    
+                    # 3. BẮT ĐẦU KIỂM TRA
+                    if "not in Base64 format" in decoded_text or "EncryptedCommandData" in decoded_text:
+                        return jsonify({"success": True, "token": password, "series": [], "message": "✅ Đã thông mạng với Máy chủ BKAV thành công!"})
+                    
+                    elif "PartnerGUID" in decoded_text or "hợp lệ" in decoded_text:
+                        return jsonify({"success": False, "message": "Sai PartnerGUID! BKAV không nhận diện được tài khoản."})
+                    
+                    elif '"Status":0' in decoded_text:
+                        return jsonify({"success": True, "token": password, "series": [], "message": "✅ Đã thông mạng với Máy chủ BKAV thành công!"})
+                    
+                    else:
+                        return jsonify({"success": False, "message": f"Thông báo từ BKAV: {decoded_text}"})
                 
-            # 3. Thành công thực sự (Trường hợp hiếm nếu API không yêu cầu mã hóa)
-            elif "<Status>0</Status>" in bkav_res.text or '"Status":0' in bkav_res.text:
-                return jsonify({"success": True, "token": password, "series": []})
-                
-            # 4. Các lỗi khác (Chết server, v.v...)
+                except Exception as e:
+                    return jsonify({"success": False, "message": "Lỗi giải mã dữ liệu từ BKAV."})
             else:
                 return jsonify({"success": False, "message": "Máy chủ BKAV từ chối kết nối hoặc sai đường dẫn URL!"})
 
