@@ -16,6 +16,8 @@ import urllib3
 import ssl
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
+ 
+import base64
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 import hashlib
@@ -125,6 +127,9 @@ def test_connection():
         username = data.get('username')
         password = data.get('password')
 
+        # 👉 THÊM DÒNG NÀY ĐỂ HẾT GẠCH VÀNG (Lấy dữ liệu hóa đơn từ React gửi lên)
+        invoice_data = data.get('invoice', data)
+
         if provider == 'MOBIFONE':
             clean_url = api_url.split('/api/')[0].rstrip('/') 
             
@@ -164,19 +169,57 @@ def test_connection():
             })
 
         # ====================================================================
-        # TEST LOGIN BKAV (Móc ruột Base64 để đọc phản hồi)
+        # ĐỘNG CƠ XUẤT HÓA ĐƠN BKAV (MÃ HÓA AES + BASE64)
         # ====================================================================
         elif provider == 'BKAV':
             clean_url = api_url.rstrip('/') 
-            print(f"\n🔄 Đang gọi API THẬT test kết nối BKAV tới: {clean_url}")
+            order_id = invoice_data.get('orderId', 'UNKNOWN')
+            print(f"\n🚀 BẮT ĐẦU XUẤT HÓA ĐƠN BKAV CHO ĐƠN: {order_id}")
             
-            # Gửi chữ TEST_OMNISALE để dụ BKAV trả lời
+            # 1. TẠO XML HÓA ĐƠN (Định dạng chuẩn BKAV)
+            # Lưu ý: Đây là sườn XML mẫu. Tùy thuộc vào yêu cầu của BKAV, Ngài có thể thêm/bớt các thẻ.
+            xml_invoice = f"""<HDon>
+                <DLHDon>
+                    <TTChung>
+                        <THDon>Hóa đơn giá trị gia tăng</THDon>
+                        <MauSo>1</MauSo>
+                        <KHHDon>1C24TAA</KHHDon>
+                    </TTChung>
+                    <NDHDon>
+                        <NMua>
+                            <Ten>{invoice_data.get('customerName', 'Khách lẻ')}</Ten>
+                        </NMua>
+                        <DSHHDVu>
+                            <HHDVu>
+                                <THHDVu>Hàng hóa dịch vụ</THHDVu>
+                                <ThTien>{invoice_data.get('totalAmount')}</ThTien>
+                            </HHDVu>
+                        </DSHHDVu>
+                    </NDHDon>
+                </DLHDon>
+            </HDon>"""
+
+            # CmdType 100 thường là lệnh Tạo Hóa Đơn Mới của BKAV
+            inner_xml = f"<CommandData><CmdType>100</CmdType><CommandObject><![CDATA[{xml_invoice}]]></CommandObject></CommandData>"
+
+           
+            
+            # Khóa AES yêu cầu độ dài 16, 24 hoặc 32 bytes. Ta đệm (pad) cho đủ 32 bytes (AES-256).
+            key_bytes = password.encode('utf-8')
+            key_bytes = key_bytes.ljust(32, b'\0')[:32] 
+            
+            cipher = AES.new(key_bytes, AES.MODE_ECB)
+            padded_data = pad(inner_xml.encode('utf-8'), AES.block_size)
+            encrypted_data = cipher.encrypt(padded_data)
+            base64_encrypted_data = base64.b64encode(encrypted_data).decode('utf-8')
+
+            # 3. BỌC VÀO SOAP ĐỂ GỬI QUA CỔNG BKAV
             soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
               <soap:Body>
                 <ExecCommand xmlns="http://tempuri.org/">
                   <partnerGUID>{username}</partnerGUID>
-                  <CommandData>TEST_OMNISALE</CommandData>
+                  <CommandData>{base64_encrypted_data}</CommandData>
                 </ExecCommand>
               </soap:Body>
             </soap:Envelope>"""
@@ -188,36 +231,31 @@ def test_connection():
             
             bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
             
-            # 1. TÌM VÀ CẮT LẤY ĐOẠN MÃ BASE64 TRONG THẺ <ExecCommandResult>
+            # 4. GIẢI MÃ KẾT QUẢ TRẢ VỀ (Giống hệt cách ta làm nút Test)
             import re
             match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text)
             
             if match:
-                b64_str = match.group(1) # Đây là đoạn mã eyJTdGF0...
+                b64_str = match.group(1)
                 try:
-                    import base64
-                    # 2. DỊCH MÃ BASE64 THÀNH CHỮ BÌNH THƯỜNG
                     decoded_text = base64.b64decode(b64_str).decode('utf-8')
-                    print("🔍 Lời nhắn thật sự của BKAV:", decoded_text)
+                    print(f"🔍 BKAV PHẢN HỒI ĐƠN {order_id}:", decoded_text)
                     
-                    # 3. BẮT ĐẦU KIỂM TRA
-                    if "not in Base64 format" in decoded_text or "EncryptedCommandData" in decoded_text:
-                        return jsonify({"success": True, "token": password, "series": [], "message": "✅ Đã thông mạng với Máy chủ BKAV thành công!"})
-                    
-                    elif "PartnerGUID" in decoded_text or "hợp lệ" in decoded_text:
-                        return jsonify({"success": False, "message": "Sai PartnerGUID! BKAV không nhận diện được tài khoản."})
-                    
-                    elif '"Status":0' in decoded_text:
-                        return jsonify({"success": True, "token": password, "series": [], "message": "✅ Đã thông mạng với Máy chủ BKAV thành công!"})
-                    
+                    if '"Status":0' in decoded_text:
+                        # THÀNH CÔNG!
+                        return jsonify({
+                            "success": True, 
+                            "message": "✅ Xuất hóa đơn BKAV thành công!", 
+                            "invoiceNo": f"BKAV-{order_id}"
+                        })
                     else:
-                        return jsonify({"success": False, "message": f"Thông báo từ BKAV: {decoded_text}"})
+                        # BKAV bắt lỗi dữ liệu XML chưa chuẩn
+                        return jsonify({"success": False, "message": f"Chi tiết lỗi từ BKAV: {decoded_text}"})
                 
                 except Exception as e:
-                    return jsonify({"success": False, "message": "Lỗi giải mã dữ liệu từ BKAV."})
+                    return jsonify({"success": False, "message": "Lỗi giải mã phản hồi xuất HĐ từ BKAV."})
             else:
-                return jsonify({"success": False, "message": "Máy chủ BKAV từ chối kết nối hoặc sai đường dẫn URL!"})
-
+                return jsonify({"success": False, "message": "❌ LỖI TRẠM TRUNG CHUYỂN BKAV: Không kết nối được tới máy chủ BKAV hoặc phản hồi sai định dạng."})
     except Exception as e:
         return jsonify({"success": False, "message": f"Lỗi hệ thống: {str(e)}"})
 
