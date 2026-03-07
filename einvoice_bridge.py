@@ -14,6 +14,8 @@ import json
 from datetime import datetime
 import urllib3
 import ssl
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 import hashlib
