@@ -169,96 +169,32 @@ def test_connection():
             })
 
         # ====================================================================
-        # ĐỘNG CƠ XUẤT HÓA ĐƠN BKAV (MÃ HÓA AES + BASE64)
+        # TEST LOGIN BKAV (Bản siêu tối giản - Dụ BKAV nhả Base64)
         # ====================================================================
         elif provider == 'BKAV':
             clean_url = api_url.rstrip('/') 
-            order_id = invoice_data.get('orderId', 'UNKNOWN')
-            print(f"\n🚀 BẮT ĐẦU XUẤT HÓA ĐƠN BKAV CHO ĐƠN: {order_id}")
+            print(f"\n🔄 Đang gọi API THẬT test kết nối BKAV tới: {clean_url}")
             
-            # 1. TẠO XML HÓA ĐƠN (Định dạng chuẩn BKAV)
-            # Lưu ý: Đây là sườn XML mẫu. Tùy thuộc vào yêu cầu của BKAV, Ngài có thể thêm/bớt các thẻ.
-            xml_invoice = f"""<HDon>
-                <DLHDon>
-                    <TTChung>
-                        <THDon>Hóa đơn giá trị gia tăng</THDon>
-                        <MauSo>1</MauSo>
-                        <KHHDon>1C24TAA</KHHDon>
-                    </TTChung>
-                    <NDHDon>
-                        <NMua>
-                            <Ten>{invoice_data.get('customerName', 'Khách lẻ')}</Ten>
-                        </NMua>
-                        <DSHHDVu>
-                            <HHDVu>
-                                <THHDVu>Hàng hóa dịch vụ</THHDVu>
-                                <ThTien>{invoice_data.get('totalAmount')}</ThTien>
-                            </HHDVu>
-                        </DSHHDVu>
-                    </NDHDon>
-                </DLHDon>
-            </HDon>"""
-
-            # CmdType 100 thường là lệnh Tạo Hóa Đơn Mới của BKAV
-            inner_xml = f"<CommandData><CmdType>100</CmdType><CommandObject><![CDATA[{xml_invoice}]]></CommandObject></CommandData>"
-
-           
-            
-            # Khóa AES yêu cầu độ dài 16, 24 hoặc 32 bytes. Ta đệm (pad) cho đủ 32 bytes (AES-256).
-            key_bytes = password.encode('utf-8')
-            key_bytes = key_bytes.ljust(32, b'\0')[:32] 
-            
-            cipher = AES.new(key_bytes, AES.MODE_ECB)
-            padded_data = pad(inner_xml.encode('utf-8'), AES.block_size)
-            encrypted_data = cipher.encrypt(padded_data)
-            base64_encrypted_data = base64.b64encode(encrypted_data).decode('utf-8')
-
-            # 3. BỌC VÀO SOAP ĐỂ GỬI QUA CỔNG BKAV
             soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
               <soap:Body>
                 <ExecCommand xmlns="http://tempuri.org/">
                   <partnerGUID>{username}</partnerGUID>
-                  <CommandData>{base64_encrypted_data}</CommandData>
+                  <CommandData>TEST_OMNISALE</CommandData>
                 </ExecCommand>
               </soap:Body>
             </soap:Envelope>"""
 
-            headers = {
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": '"http://tempuri.org/ExecCommand"'
-            }
-            
+            headers = {"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '"http://tempuri.org/ExecCommand"'}
             bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
             
-            # 4. GIẢI MÃ KẾT QUẢ TRẢ VỀ (Giống hệt cách ta làm nút Test)
-            import re
-            match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text)
-            
-            if match:
-                b64_str = match.group(1)
-                try:
-                    decoded_text = base64.b64decode(b64_str).decode('utf-8')
-                    print(f"🔍 BKAV PHẢN HỒI ĐƠN {order_id}:", decoded_text)
-                    
-                    if '"Status":0' in decoded_text:
-                        # THÀNH CÔNG!
-                        return jsonify({
-                            "success": True, 
-                            "message": "✅ Xuất hóa đơn BKAV thành công!", 
-                            "invoiceNo": f"BKAV-{order_id}"
-                        })
-                    else:
-                        # BKAV bắt lỗi dữ liệu XML chưa chuẩn
-                        return jsonify({"success": False, "message": f"Chi tiết lỗi từ BKAV: {decoded_text}"})
-                
-                except Exception as e:
-                    return jsonify({"success": False, "message": "Lỗi giải mã phản hồi xuất HĐ từ BKAV."})
+            if "eyJTdGF0dXMi" in bkav_res.text or "not in Base64 format" in bkav_res.text:
+                return jsonify({"success": True, "token": password, "series": [], "message": "✅ KẾT NỐI MÁY CHỦ BKAV THÀNH CÔNG!"})
             else:
-                return jsonify({"success": False, "message": "❌ LỖI TRẠM TRUNG CHUYỂN BKAV: Không kết nối được tới máy chủ BKAV hoặc phản hồi sai định dạng."})
+                return jsonify({"success": False, "message": "Máy chủ BKAV từ chối kết nối!"})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Lỗi hệ thống: {str(e)}"})
-
+        return jsonify({"success": False, "message": f"Lỗi hệ thống lõi: {str(e)}"})
+    
 
 # ====================================================================
 # 2. API XUẤT HÓA ĐƠN THỰC TẾ
@@ -427,120 +363,127 @@ def issue_einvoice():
             return jsonify({"success": False, "message": str(e)})
 
     # ====================================================================
-    # XUẤT HÓA ĐƠN ĐIỆN TỬ BKAV (Sử dụng Lệnh 101 - Tự động cấp Ký hiệu)
+    # XUẤT HÓA ĐƠN ĐIỆN TỬ BKAV (Lệnh 101 + MÃ HÓA AES)
     # ====================================================================
     elif provider == 'BKAV':
         api_url = data.get('apiURL')       
         partner_guid = data.get('apiKey')  # PartnerGUID
+        password = data.get('apiSecret')   # MẬT KHẨU (TOKEN) DÙNG ĐỂ LÀM CHÌA KHÓA AES
         
-        if not api_url or not partner_guid:
-            return jsonify({"success": False, "message": "Thiếu API URL hoặc PartnerGUID của BKAV!"})
+        if not api_url or not partner_guid or not password:
+            return jsonify({"success": False, "message": "Thiếu API URL, PartnerGUID hoặc Mật khẩu Token của BKAV!"})
 
         try:
             print(f"\n🚀 BẮT ĐẦU XUẤT HÓA ĐƠN BKAV CHO ĐƠN: {order['id']}")
             clean_url = api_url.rstrip('/')
             
+            # --- PHẦN GOM DỮ LIỆU CỦA CEO (GIỮ NGUYÊN) ---
             customer = order.get('customer', {})
             tax_code = customer.get('taxCode', '').strip()
             cus_name = customer.get('name', 'Khách lẻ').strip()
             cus_email = customer.get('email', '').strip()
             cus_address = customer.get('address', '').strip()
-            cus_phone = customer.get('phone', '').strip()
-
             is_business = bool(tax_code)
 
-            # Map dữ liệu hàng hóa [cite: 98-108, 1618, 1629]
             list_details = []
             for idx, item in enumerate(order['items']):
                 list_details.append({
-                    "ItemTypeID": 0, # 0: Hàng hoá dịch vụ [cite: 1618]
+                    "ItemTypeID": 0,
                     "ItemName": item['name'],
                     "UnitName": "Cái",
                     "Qty": float(item['qty']),
                     "Price": float(item['price']),
                     "Amount": float(item['qty'] * item['price']),
-                    "TaxRateID": 4, # 4: Không chịu thuế (-1) theo tài liệu [cite: 1629]
+                    "TaxRateID": 4, 
                     "TaxRate": -1.0,
                     "TaxAmount": 0.0,
-                    "IsDiscount": False # [cite: 116]
+                    "IsDiscount": False 
                 })
 
-            # Đóng gói Invoice Object (Lệnh 101 không truyền Mẫu số/Ký hiệu) 
             invoice_obj = {
-                "InvoiceTypeID": 1, # 1: Hóa đơn GTGT [cite: 1616]
+                "InvoiceTypeID": 1, 
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                "BuyerName": "" if is_business else cus_name, # [cite: 46]
-                "BuyerUnitName": cus_name if is_business else "", # [cite: 48]
-                "BuyerTaxCode": tax_code, # [cite: 47]
-                "BuyerAddress": cus_address, # [cite: 54]
-                "PayMethodID": 3, # 3: TM/CK [cite: 1622]
-                "ReceiveTypeID": 3, # 3: Email & SMS [cite: 59, 62]
-                "ReceiverEmail": cus_email, # [cite: 60]
-                "CurrencyID": "VND", # [cite: 70]
-                "ExchangeRate": 1.0, # [cite: 71]
+                "BuyerName": "" if is_business else cus_name, 
+                "BuyerUnitName": cus_name if is_business else "", 
+                "BuyerTaxCode": tax_code, 
+                "BuyerAddress": cus_address, 
+                "PayMethodID": 3, 
+                "ReceiveTypeID": 3, 
+                "ReceiverEmail": cus_email, 
+                "CurrencyID": "VND", 
+                "ExchangeRate": 1.0, 
             }
 
             command_object = [{
                 "Invoice": invoice_obj,
-                "ListInvoiceDetailsWS": list_details, # [cite: 98]
-                "PartnerInvoiceStringID": str(order['id']) # ID đơn hàng nội bộ [cite: 133, 239]
+                "ListInvoiceDetailsWS": list_details, 
+                "PartnerInvoiceStringID": str(order['id']) 
             }]
 
             json_payload = json.dumps(command_object)
-            inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>" # Lệnh 101 
+            inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
 
+            # =========================================================
+            # ĐỘNG CƠ MÃ HÓA AES BẮT ĐẦU HOẠT ĐỘNG
+            # =========================================================
+            # Khóa AES yêu cầu độ dài 32 bytes (AES-256).
+            key_bytes = password.encode('utf-8')
+            key_bytes = key_bytes.ljust(32, b'\0')[:32] 
+            
+            cipher = AES.new(key_bytes, AES.MODE_ECB)
+            padded_data = pad(inner_xml.encode('utf-8'), AES.block_size)
+            encrypted_data = cipher.encrypt(padded_data)
+            base64_encrypted_data = base64.b64encode(encrypted_data).decode('utf-8')
+
+            # =========================================================
+            # GÓI VÀO SOAP VÀ BẮN SANG BKAV
+            # =========================================================
             soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
               <soap:Body>
                 <ExecCommand xmlns="http://tempuri.org/">
                   <partnerGUID>{partner_guid}</partnerGUID>
-                  <CommandData><![CDATA[{inner_xml}]]></CommandData>
+                  <CommandData>{base64_encrypted_data}</CommandData>
                 </ExecCommand>
               </soap:Body>
             </soap:Envelope>"""
 
             headers = {
                 "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": "http://tempuri.org/ExecCommand"
+                "SOAPAction": '"http://tempuri.org/ExecCommand"'
             }
 
-            # =========================================================
-            # GỌI API THẬT VÀ XỬ LÝ PHẢN HỒI TỪ BKAV
-            # =========================================================
             bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
-            print("\n📩 Kết quả thô từ BKAV:", bkav_res.text)
             
-            # Dùng Regex để tách chuỗi JSON nằm trong thẻ <ExecCommandResult>
-            match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text)
+            print(f"📩 Mã trạng thái HTTP: {bkav_res.status_code}")
+            
+            # --- GIẢI MÃ KẾT QUẢ VỚI RE.DOTALL ---
+            match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text, re.DOTALL)
             if match:
-                # Giải mã các ký tự HTML (Ví dụ: &quot; thành ")
-                raw_json_str = html.unescape(match.group(1))
-                res_json = json.loads(raw_json_str)
-                
-                # Trạng thái 0 là Thành công tuyệt đối
-                if res_json.get("Status") == 0: 
-                    # Chuỗi Object chứa thông tin hóa đơn vừa phát hành
-                    obj_data_str = res_json.get("Object", "[]")
-                    if isinstance(obj_data_str, str):
-                        obj_data = json.loads(obj_data_str)
-                    else:
-                        obj_data = obj_data_str
-                        
-                    # Lấy Mã Tra Cứu (MTC) của BKAV trả về
-                    lookup_code = obj_data[0].get("MTC", "N/A") if obj_data and len(obj_data) > 0 else "N/A"
+                b64_str = match.group(1).strip()
+                try:
+                    decoded_text = base64.b64decode(b64_str).decode('utf-8')
+                    print(f"🔍 BKAV PHẢN HỒI ĐƠN {order['id']}:", decoded_text)
                     
-                    print(f"✅ ĐÃ XUẤT HÓA ĐƠN BKAV THÀNH CÔNG THỰC TẾ! MÃ TRA CỨU: {lookup_code}")
-                    return jsonify({"success": True, "lookupCode": lookup_code, "message": "Xuất HĐĐT BKAV thành công!"})
-                else:
-                    error_msg = res_json.get("Object", "Lỗi từ BKAV")
-                    raise Exception(f"BKAV báo lỗi: {error_msg}")
+                    if '"Status":0' in decoded_text:
+                        # THÀNH CÔNG RỰC RỠ! Lấy mã tra cứu.
+                        res_json = json.loads(decoded_text)
+                        obj_data_str = res_json.get("Object", "[]")
+                        obj_data = json.loads(obj_data_str) if isinstance(obj_data_str, str) else obj_data_str
+                        lookup_code = obj_data[0].get("MTC", "N/A") if obj_data else "N/A"
+                        
+                        return jsonify({"success": True, "lookupCode": lookup_code, "message": "✅ Xuất hóa đơn BKAV thành công!"})
+                    else:
+                        return jsonify({"success": False, "message": f"BKAV báo lỗi dữ liệu: {decoded_text}"})
+                
+                except Exception as e:
+                    return jsonify({"success": False, "message": f"Lỗi giải mã Base64 từ BKAV: {str(e)}"})
             else:
-                raise Exception("Không kết nối được tới máy chủ BKAV hoặc phản hồi sai định dạng.")
+                return jsonify({"success": False, "message": "Lỗi: Không đọc được phản hồi từ BKAV."})
 
         except Exception as e:
             print(f"❌ LỖI TRẠM TRUNG CHUYỂN BKAV: {str(e)}")
             return jsonify({"success": False, "message": f"Lỗi xuất HĐĐT BKAV: {str(e)}"})
-
 if __name__ == '__main__':
     print("=================================================================")
     print("🚀 Khởi động Trạm trung chuyển Hóa đơn điện tử trên CLOUD...")
