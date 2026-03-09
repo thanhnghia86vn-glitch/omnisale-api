@@ -407,13 +407,16 @@ def issue_einvoice():
                     "DiscountRate": 0.0,    # CHỐNG LỖI NULL CỦA BKAV
                     "DiscountAmount": 0.0   # CHỐNG LỖI NULL CỦA BKAV
                 })
-
-            # KHAI BÁO TƯỜNG MINH TẤT CẢ CÁC TRƯỜNG ĐỂ CHỐNG LỖI NULL MÁY CHỦ BKAV
+            # Lấy thông số định dạng Hóa đơn từ POS gửi lên
+            client_config = data.get('config', {})
+            invoice_form = client_config.get('invoiceForm', '').strip()
+            invoice_serial = client_config.get('invoiceSerial', '').strip()
+            # Bơm vào Object chuẩn bị gửi BKAV
             invoice_obj = {
                 "InvoiceTypeID": 1, 
-                "InvoiceStatusID": 1, # 👉 THÊM VÀO: 1 = Hóa đơn mới (Cực kỳ quan trọng)
-                "InvoiceForm": "",    # 👉 THÊM VÀO: Bắt buộc khai báo dù rỗng
-                "InvoiceSerial": "",  # 👉 THÊM VÀO: Bắt buộc khai báo dù rỗng
+                "InvoiceStatusID": 1, 
+                "InvoiceForm": invoice_form,      # VD: "2"
+                "InvoiceSerial": invoice_serial,  # VD: "M26TAA"
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                 "BuyerName": "" if is_business else cus_name, 
                 "BuyerUnitName": cus_name if is_business else "", 
@@ -421,10 +424,14 @@ def issue_einvoice():
                 "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
                 "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
+                
+                # --- NHÓM THÔNG TIN NGƯỜI NHẬN (CẬP NHẬT THEO LỜI KHUYÊN BKAV) ---
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
                 "ReceiverMobile": cus_phone, 
-                "ReceiverName": cus_name,    
+                "ReceiverName": cus_name if cus_name else "Khách mua lẻ",    
+                "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", # 👉 CHÌA KHÓA MỞ CỔNG LÀ ĐÂY!!!
+                
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
                 "InvoiceNote": "Xuất từ OmniSale Pro"
@@ -507,6 +514,7 @@ def issue_einvoice():
         except Exception as e:
             print(f"❌ LỖI TRẠM TRUNG CHUYỂN BKAV: {str(e)}")
             return jsonify({"success": False, "message": f"Lỗi xuất HĐĐT BKAV: {str(e)}"})
+
 if __name__ == '__main__':
     print("=================================================================")
     print("🚀 Khởi động Trạm trung chuyển Hóa đơn điện tử trên CLOUD...")
