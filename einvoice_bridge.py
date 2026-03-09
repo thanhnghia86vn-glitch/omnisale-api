@@ -380,7 +380,11 @@ def issue_einvoice():
             # --- PHẦN GOM DỮ LIỆU ĐÃ ĐƯỢC "BỌC LÓT" KỸ CÀNG ---
             customer = order.get('customer', {})
             tax_code = customer.get('taxCode', '').strip()
-            cus_name = customer.get('name', 'Khách lẻ').strip()
+            cus_name = customer.get('name', '').strip()
+            
+            if not cus_name:
+                cus_name = 'Khách lẻ'
+                
             cus_address = customer.get('address', '').strip()
             cus_phone = customer.get('phone', '').strip()
 
@@ -389,7 +393,35 @@ def issue_einvoice():
             if not cus_email:
                 cus_email = "doanhnghiepbinhthuan86@gmail.com" 
 
-            is_business = bool(tax_code)
+            # ==============================================================
+            # 👉 BỘ LỌC 3 TRƯỜNG HỢP KHÁCH HÀNG (Do CEO thiết kế)
+            # ==============================================================
+            # Danh sách từ khóa nhận diện doanh nghiệp
+            company_keywords = ['CÔNG TY', 'CONG TY', 'TNHH', 'CP', 'CỔ PHẦN', 'CO PHAN', 'DOANH NGHIỆP', 'DNTN', 'HTX', 'TRƯỜNG', 'UBND', 'VIỆN']
+            is_company = False
+            
+            if tax_code:
+                # Nếu có MST và Tên chứa các từ khóa doanh nghiệp -> Đích thị là Công ty
+                if any(kw in cus_name.upper() for kw in company_keywords):
+                    is_company = True
+            
+            buyer_name = ""
+            buyer_unit_name = ""
+            
+            if not tax_code:
+                # TRƯỜNG HỢP 1: Khách lẻ (Không có MST)
+                buyer_name = cus_name
+                buyer_unit_name = ""
+            elif tax_code and not is_company:
+                # TRƯỜNG HỢP 2: Cá nhân lấy Hóa đơn (Có MST cá nhân / CCCD)
+                buyer_name = cus_name
+                buyer_unit_name = ""
+            else:
+                # TRƯỜNG HỢP 3: Doanh nghiệp / Tổ chức
+                buyer_name = "" # Bỏ trống tên cá nhân
+                buyer_unit_name = cus_name # Đẩy tên vào ô Đơn vị
+
+            # ==============================================================
 
             list_details = []
             for idx, item in enumerate(order['items']):
@@ -404,37 +436,43 @@ def issue_einvoice():
                     "TaxRate": -1.0,
                     "TaxAmount": 0.0,
                     "IsDiscount": False,
-                    "DiscountRate": 0.0,    # CHỐNG LỖI NULL CỦA BKAV
-                    "DiscountAmount": 0.0   # CHỐNG LỖI NULL CỦA BKAV
+                    "DiscountRate": 0.0,    
+                    "DiscountAmount": 0.0, 
+                    "UserDefineDetails": ""  
                 })
+
             # Lấy thông số định dạng Hóa đơn từ POS gửi lên
             client_config = data.get('config', {})
             invoice_form = client_config.get('invoiceForm', '').strip()
             invoice_serial = client_config.get('invoiceSerial', '').strip()
+
             # Bơm vào Object chuẩn bị gửi BKAV
             invoice_obj = {
                 "InvoiceTypeID": 1, 
                 "InvoiceStatusID": 1, 
-                "InvoiceForm": invoice_form,      # VD: "2"
-                "InvoiceSerial": invoice_serial,  # VD: "M26TAA"
+                "InvoiceForm": invoice_form,      
+                "InvoiceSerial": invoice_serial,  
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                "BuyerName": "" if is_business else cus_name, 
-                "BuyerUnitName": cus_name if is_business else "", 
+                "BuyerCode": "",
+                # SỬ DỤNG KẾT QUẢ TỪ BỘ LỌC 3 TRƯỜNG HỢP
+                "BuyerName": buyer_name, 
+                "BuyerUnitName": buyer_unit_name, 
                 "BuyerTaxCode": tax_code, 
                 "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
                 "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
                 
-                # --- NHÓM THÔNG TIN NGƯỜI NHẬN (CẬP NHẬT THEO LỜI KHUYÊN BKAV) ---
+                # --- NHÓM THÔNG TIN NGƯỜI NHẬN ---
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
-                "ReceiverMobile": "", 
-                "ReceiverName": cus_name if cus_name else "Khách mua lẻ",    
-                "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", # 👉 CHÌA KHÓA MỞ CỔNG LÀ ĐÂY!!!
+                "ReceiverMobile": "", # ÉP BUỘC TRỐNG SĐT THEO LỆNH CỦA BKAV
+                "ReceiverName": cus_name,    
+                "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
                 
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
-                "InvoiceNote": "Xuất từ OmniSale Pro"
+                "InvoiceNote": "Xuất từ OmniSale Pro",
+                "UserDefine": ""
             }
 
             command_object = [{
@@ -451,7 +489,7 @@ def issue_einvoice():
             print(json_payload)
             print("--------------------------------------------------\n")
 
-            inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
+            inner_xml = f"<CommandData><CmdType>112</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
 
             # =========================================================
             # ĐỘNG CƠ MÃ HÓA AES BẮT ĐẦU HOẠT ĐỘNG
