@@ -382,6 +382,7 @@ def issue_einvoice():
             tax_code = customer.get('taxCode', '').strip()
             cus_name = customer.get('name', 'Khách lẻ').strip()
             cus_address = customer.get('address', '').strip()
+            cus_phone = customer.get('phone', '').strip()
             
             # TRÁNH LỖI SẬP EMAIL CỦA BKAV
             cus_email = customer.get('email', '').strip()
