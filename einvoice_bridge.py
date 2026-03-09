@@ -427,6 +427,7 @@ def issue_einvoice():
             for idx, item in enumerate(order['items']):
                 list_details.append({
                     "ItemTypeID": 0,
+                    "ItemCode": item.get('id', f"SP{idx}"),
                     "ItemName": item['name'],
                     "UnitName": "Cái",
                     "Qty": float(item['qty']),
@@ -451,9 +452,11 @@ def issue_einvoice():
                 "InvoiceTypeID": 1, 
                 "InvoiceStatusID": 1, 
                 "InvoiceForm": invoice_form,      
-                "InvoiceSerial": invoice_serial,  
+                "InvoiceSerial": invoice_serial,
+                "InvoiceNo": 0,  
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                 "BuyerCode": "",
+                
                 # SỬ DỤNG KẾT QUẢ TỪ BỘ LỌC 3 TRƯỜNG HỢP
                 "BuyerName": buyer_name, 
                 "BuyerUnitName": buyer_unit_name, 
@@ -468,16 +471,18 @@ def issue_einvoice():
                 "ReceiverMobile": "", # ÉP BUỘC TRỐNG SĐT THEO LỆNH CỦA BKAV
                 "ReceiverName": cus_name,    
                 "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
+                "Note": "Xuất từ OmniSale Pro", 
+                "BillCode": "", 
                 
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
-                "InvoiceNote": "Xuất từ OmniSale Pro",
                 "UserDefine": ""
             }
 
             command_object = [{
                 "Invoice": invoice_obj,
-                "ListInvoiceDetailsWS": list_details, 
+                "ListInvoiceDetailsWS": list_details,
+                "ListInvoiceAttachFileWS": [], 
                 "PartnerInvoiceID": 0, # THÊM VÀO CHỐNG LỖI
                 "PartnerInvoiceStringID": str(order['id']) 
             }]
