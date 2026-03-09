@@ -383,7 +383,7 @@ def issue_einvoice():
             cus_name = customer.get('name', 'Khách lẻ').strip()
             cus_address = customer.get('address', '').strip()
             cus_phone = customer.get('phone', '').strip()
-            
+
             # TRÁNH LỖI SẬP EMAIL CỦA BKAV
             cus_email = customer.get('email', '').strip()
             if not cus_email:
@@ -437,8 +437,13 @@ def issue_einvoice():
                 "PartnerInvoiceStringID": str(order['id']) 
             }]
 
-            # Ép chuẩn UTF-8 để giữ nguyên chữ Tiếng Việt
             json_payload = json.dumps(command_object, ensure_ascii=False)
+            
+            # 👉 THÊM 3 DÒNG NÀY ĐỂ IN RA JSON GỬI CHO BKAV:
+            print("\n📦 BẢN JSON THÔ TRƯỚC KHI MÃ HÓA (COPY CÁI NÀY GỬI BKAV):")
+            print(json_payload)
+            print("--------------------------------------------------\n")
+
             inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
 
             # =========================================================
