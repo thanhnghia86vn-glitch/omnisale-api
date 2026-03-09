@@ -386,7 +386,7 @@ def issue_einvoice():
             # TRÁNH LỖI SẬP EMAIL CỦA BKAV
             cus_email = customer.get('email', '').strip()
             if not cus_email:
-                cus_email = "khachhang@omnisale.vn" 
+                cus_email = "doanhnghiepbinhthuan86@gmail.com" 
 
             is_business = bool(tax_code)
 
@@ -407,30 +407,36 @@ def issue_einvoice():
                     "DiscountAmount": 0.0   # CHỐNG LỖI NULL CỦA BKAV
                 })
 
+            # KHAI BÁO TƯỜNG MINH TẤT CẢ CÁC TRƯỜNG ĐỂ CHỐNG LỖI NULL MÁY CHỦ BKAV
             invoice_obj = {
                 "InvoiceTypeID": 1, 
-                "InvoiceStatusID": 1, # CHỐNG LỖI NULL (1 = Hóa đơn mới)
-                "InvoiceForm": "",    # Bắt buộc phải khai báo key này
-                "InvoiceSerial": "",  # Bắt buộc phải khai báo key này
+                "InvoiceStatusID": 1, # 👉 THÊM VÀO: 1 = Hóa đơn mới (Cực kỳ quan trọng)
+                "InvoiceForm": "",    # 👉 THÊM VÀO: Bắt buộc khai báo dù rỗng
+                "InvoiceSerial": "",  # 👉 THÊM VÀO: Bắt buộc khai báo dù rỗng
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                 "BuyerName": "" if is_business else cus_name, 
                 "BuyerUnitName": cus_name if is_business else "", 
                 "BuyerTaxCode": tax_code, 
-                "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", # Tránh địa chỉ rỗng
+                "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
+                "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
-                "ReceiveTypeID": 1, # Sửa thành 1 (Không tự động gửi Email khi test) để tránh lỗi
+                "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
+                "ReceiverMobile": cus_phone, 
+                "ReceiverName": cus_name,    
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
+                "InvoiceNote": "Xuất từ OmniSale Pro"
             }
 
             command_object = [{
                 "Invoice": invoice_obj,
                 "ListInvoiceDetailsWS": list_details, 
+                "PartnerInvoiceID": 0, # THÊM VÀO CHỐNG LỖI
                 "PartnerInvoiceStringID": str(order['id']) 
             }]
 
-            # SỬA LỖI CHÍNH: Ép Python giữ nguyên Tiếng Việt (ensure_ascii=False) để BKAV không bị lỗi Font
+            # Ép chuẩn UTF-8 để giữ nguyên chữ Tiếng Việt
             json_payload = json.dumps(command_object, ensure_ascii=False)
             inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
 
