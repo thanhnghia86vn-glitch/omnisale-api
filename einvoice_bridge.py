@@ -428,7 +428,7 @@ def issue_einvoice():
                 # --- NHÓM THÔNG TIN NGƯỜI NHẬN (CẬP NHẬT THEO LỜI KHUYÊN BKAV) ---
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
-                "ReceiverMobile": cus_phone, 
+                "ReceiverMobile": "", 
                 "ReceiverName": cus_name if cus_name else "Khách mua lẻ",    
                 "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", # 👉 CHÌA KHÓA MỞ CỔNG LÀ ĐÂY!!!
                 
