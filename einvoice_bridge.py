@@ -448,32 +448,41 @@ def issue_einvoice():
             invoice_serial = client_config.get('invoiceSerial', '').strip()
 
             # =================================================================
-            # GÓI DỮ LIỆU TỐI GIẢN 100% (CHUẨN THEO POSTMAN BKAV)
+            # GÓI DỮ LIỆU "BỌC THÉP" - ĐẦY ĐỦ 100% TRƯỜNG THEO POSTMAN BKAV
             # =================================================================
-            
             invoice_obj = {
                 "InvoiceTypeID": 1, 
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                 "BuyerName": buyer_name, 
-                "BuyerUnitName": buyer_unit_name, 
                 "BuyerTaxCode": tax_code, 
+                "BuyerUnitName": buyer_unit_name, 
                 "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
+                "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
-                "ReceiverName": cus_name,    
+                "ReceiverMobile": "",
                 "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
+                "ReceiverName": cus_name,    
                 "Note": "Xuất từ OmniSale Pro", 
                 "BillCode": str(order.get('id', 'BILL-01')), 
                 "CurrencyID": "VND", 
-                "ExchangeRate": 1.0
-                # Đã gọt bỏ hoàn toàn các biến rác: InvoiceForm, Serial, No, UserDefine, Mobile...
+                "ExchangeRate": 1.0, 
+                
+                # PHỤC HỒI CÁC TRƯỜNG BẮT BUỘC ĐỂ C# KHÔNG BÁO LỖI NULL
+                "InvoiceStatusID": 1,
+                "InvoiceForm": invoice_form,      
+                "InvoiceSerial": invoice_serial, 
+                "InvoiceNo": 0, 
+                "UserDefine": "",
+                "OriginalInvoiceIdentify": "" 
             }
 
             list_details = []
             for idx, item in enumerate(order['items']):
                 list_details.append({
                     "ItemTypeID": 0,
+                    "ItemCode": item.get('id', f"SP{idx}"), 
                     "ItemName": item['name'],
                     "UnitName": "Cái",
                     "Qty": float(item['qty']),
@@ -482,31 +491,30 @@ def issue_einvoice():
                     "TaxRateID": 4, 
                     "TaxRate": -1.0,
                     "TaxAmount": 0.0,
-                    "IsDiscount": False
-                    # Đã gọt bỏ UserDefineDetails
+                    "IsDiscount": False,
+                    "IsIncrease": False, 
+                    "DiscountRate": 0.0,    
+                    "DiscountAmount": 0.0, 
+                    "UserDefineDetails": ""  
                 })
 
             command_object = [{
                 "Invoice": invoice_obj,
                 "ListInvoiceDetailsWS": list_details,
-                # Đã gọt bỏ mảng ListInvoiceAttachFileWS
+                "ListInvoiceAttachFileWS": [], # PHỤC HỒI MẢNG RỖNG NÀY
                 "PartnerInvoiceID": 0,
-                "PartnerInvoiceStringID": str(order.get('id', 'BILL-01'))
+                "PartnerInvoiceStringID": str(order.get('id', 'BILL-01')),
+                "IsSetInvoiceNo": True # BỔ SUNG THEO POSTMAN
             }]
 
             json_payload = json.dumps(command_object, ensure_ascii=False)
             
-            # 👉 THÊM 3 DÒNG NÀY ĐỂ IN RA JSON GỬI CHO BKAV:
             print("\n📦 BẢN JSON THÔ TRƯỚC KHI MÃ HÓA (COPY CÁI NÀY GỬI BKAV):")
             print(json_payload)
             print("--------------------------------------------------\n")
 
-            # 👉 QUAN TRỌNG NHẤT: ĐỔI VỀ LỆNH 100 ĐỂ BKAV TỰ ĐỘNG LO MẪU SỐ & KÝ HIỆU
+            # GIỮ NGUYÊN LỆNH 100 VÀ BASE64 (KHÔNG AES)
             inner_xml = f"<CommandData><CmdType>100</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
-            # =========================================================
-            # ĐÓNG GÓI BASE64 THEO CHUẨN MỚI CỦA BKAV (KHÔNG DÙNG AES)
-            # =========================================================
-            # Theo xác nhận từ BKAV, chỉ cần encode Base64 chuỗi XML là đủ
             base64_encrypted_data = base64.b64encode(inner_xml.encode('utf-8')).decode('utf-8')
 
             # =========================================================
