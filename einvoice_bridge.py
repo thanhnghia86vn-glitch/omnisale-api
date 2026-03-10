@@ -450,7 +450,7 @@ def issue_einvoice():
             # Bơm vào Object chuẩn bị gửi BKAV
             invoice_obj = {
                 "InvoiceTypeID": 1, 
-                "InvoiceStatusID": 1, 
+                # "InvoiceStatusID": 1, 
                 "InvoiceForm": invoice_form,      
                 "InvoiceSerial": invoice_serial,
                 "InvoiceNo": 0,  
@@ -472,7 +472,7 @@ def issue_einvoice():
                 "ReceiverName": cus_name,    
                 "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
                 "Note": "Xuất từ OmniSale Pro", 
-                "BillCode": "", 
+                "BillCode": str(order.get('id', 'BILL-01')), 
                 
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
