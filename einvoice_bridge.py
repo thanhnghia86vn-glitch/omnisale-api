@@ -517,32 +517,43 @@ def issue_einvoice():
             base64_encrypted_data = base64.b64encode(inner_xml.encode('utf-8')).decode('utf-8')
 
             # =========================================================
-            # GÓI VÀO SOAP VÀ BẮN SANG BKAV
+            # BÍ QUYẾT TỪ POSTMAN: DÙNG JSON REST API THAY VÌ SOAP XML
             # =========================================================
-            soap_payload = f"""<?xml version="1.0" encoding="utf-8"?>
-            <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-              <soap:Body>
-                <ExecCommand xmlns="http://tempuri.org/">
-                  <partnerGUID>{partner_guid}</partnerGUID>
-                  <CommandData>{base64_encrypted_data}</CommandData>
-                </ExecCommand>
-              </soap:Body>
-            </soap:Envelope>"""
+            # 1. Tạo object CommandData chứa Mệnh lệnh (100) và Dữ liệu JSON
+            inner_dict = {
+                "CmdType": 100,
+                "CommandObject": json_payload  # Truyền nguyên chuỗi JSON vào đây
+            }
+            
+            # 2. Encode Base64 cái object này
+            inner_json_str = json.dumps(inner_dict, ensure_ascii=False)
+            base64_encrypted_data = base64.b64encode(inner_json_str.encode('utf-8')).decode('utf-8')
 
-            headers = {
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": '"http://tempuri.org/ExecCommand"'
+            # 3. Gói vào payload cuối cùng (JSON thuần, không dùng XML)
+            final_payload = {
+                "partnerGUID": partner_guid,
+                "CommandData": base64_encrypted_data
             }
 
-            bkav_res = http_session.post(clean_url, data=soap_payload.encode('utf-8'), headers=headers, verify=False)
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # 👉 CHÚ Ý SỰ KHÁC BIỆT: Gắn thêm /ExecCommand vào đuôi URL
+            api_endpoint = f"{clean_url}/ExecCommand"
+            
+            print(f"🚀 Bắn API JSON tới: {api_endpoint}")
+            bkav_res = http_session.post(api_endpoint, json=final_payload, headers=headers, verify=False)
             
             print(f"📩 Mã trạng thái HTTP: {bkav_res.status_code}")
             
-            # --- GIẢI MÃ KẾT QUẢ VỚI RE.DOTALL ---
-            match = re.search(r'<ExecCommandResult>(.*?)</ExecCommandResult>', bkav_res.text, re.DOTALL)
-            if match:
-                b64_str = match.group(1).strip()
-                try:
+            # --- GIẢI MÃ KẾT QUẢ TỪ JSON REST API ---
+            try:
+                # API chuẩn sẽ trả về dạng JSON: { "d": "chuỗi_base64_kết_quả" }
+                res_data = bkav_res.json() 
+                b64_str = res_data.get("d", "")
+                
+                if b64_str:
                     decoded_text = base64.b64decode(b64_str).decode('utf-8')
                     print(f"🔍 BKAV PHẢN HỒI ĐƠN {order['id']}:", decoded_text)
                     
@@ -556,11 +567,12 @@ def issue_einvoice():
                         return jsonify({"success": True, "lookupCode": lookup_code, "message": "✅ Xuất hóa đơn BKAV thành công!"})
                     else:
                         return jsonify({"success": False, "message": f"BKAV báo lỗi dữ liệu: {decoded_text}"})
-                
-                except Exception as e:
-                    return jsonify({"success": False, "message": f"Lỗi giải mã Base64 từ BKAV: {str(e)}"})
-            else:
-                return jsonify({"success": False, "message": "Lỗi: Không đọc được phản hồi từ BKAV."})
+                else:
+                    # Đề phòng BKAV trả về text trần
+                    return jsonify({"success": False, "message": f"Máy chủ BKAV trả về lỗi không mong muốn: {bkav_res.text}"})
+                    
+            except Exception as e:
+                return jsonify({"success": False, "message": f"Lỗi xử lý phản hồi BKAV: {str(e)} - Raw: {bkav_res.text[:100]}"})
 
         except Exception as e:
             print(f"❌ LỖI TRẠM TRUNG CHUYỂN BKAV: {str(e)}")
