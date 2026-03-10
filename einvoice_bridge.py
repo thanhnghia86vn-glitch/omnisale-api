@@ -26,6 +26,88 @@ import uuid
 # Tắt cảnh báo khi kết nối với các máy chủ dùng SSL đời cũ
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime, timedelta
+
+# =========================================================
+# KHỞI TẠO FIREBASE ADMIN SDK (QUYỀN SINH SÁT DATA)
+# =========================================================
+try:
+    # Đọc file chìa khóa Ngài vừa tải về
+    cred = credentials.Certificate("firebase-admin-key.json")
+    firebase_admin.initialize_app(cred)
+    db_admin = firestore.client()
+    print("✅ Đã kết nối Firebase Admin SDK thành công!")
+except Exception as e:
+    print("⚠️ Chưa tìm thấy file firebase-admin-key.json, Webhook sẽ không chạy được:", e)
+
+
+app = Flask(__name__)
+CORS(app) # Cho phép React gọi vào
+# =========================================================
+# CỔNG NHẬN BIẾN ĐỘNG SỐ DƯ TỪ SEPAY.VN
+# =========================================================
+@app.route('/api/payment/webhook', methods=['POST'])
+def sepay_webhook():
+    try:
+        data = request.json
+        print("\n💰 [SEPAY WEBHOOK] CÓ TIỀN VỀ:", data)
+
+        amount_in = float(data.get('transferAmount', 0))
+        transfer_content = data.get('content', '').upper()
+
+        # Kiểm tra xem có đúng cú pháp hệ thống không (Ví dụ: OSPRO 1A2B3C 1Y)
+        if "OSPRO" in transfer_content:
+            parts = transfer_content.split()
+            
+            if len(parts) >= 3:
+                user_id_short = parts[1] # Cắt lấy 6 ký tự UID
+                plan_code = parts[2]     # Lấy mã gói (1Y, 2Y, 3Y)
+
+                # Quy đổi gói cước ra số ngày
+                days_to_add = 0
+                if plan_code == "1Y" and amount_in >= 1000000: days_to_add = 365
+                elif plan_code == "2Y" and amount_in >= 1800000: days_to_add = 730
+                elif plan_code == "3Y" and amount_in >= 2500000: days_to_add = 1095
+
+                if days_to_add > 0:
+                    # 1. Chạy vào Két sắt tìm đúng ông khách có 6 mã UID này
+                    users_ref = db_admin.collection("users")
+                    # Lệnh tìm kiếm theo "Bắt đầu bằng..." trong Firestore
+                    query = users_ref.where("uid", ">=", user_id_short).where("uid", "<=", user_id_short + '\uf8ff').limit(1).stream()
+
+                    for user_doc in query:
+                        current_data = user_doc.to_dict()
+                        current_expire_str = current_data.get('expireDate')
+
+                        # 2. Tính toán ngày hết hạn mới
+                        if current_expire_str:
+                            current_expire = datetime.strptime(current_expire_str, "%Y-%m-%d")
+                        else:
+                            current_expire = datetime.now()
+
+                        today = datetime.now()
+                        # Nếu đang còn hạn -> Cộng dồn. Nếu đã hết hạn -> Tính từ hôm nay
+                        base_date = current_expire if current_expire > today else today
+                        new_expire = base_date + timedelta(days=days_to_add)
+
+                        # 3. Ghi đè ngày mới lên Firebase
+                        user_doc.reference.update({
+                            "expireDate": new_expire.strftime("%Y-%m-%d")
+                        })
+                        print(f"🎉 AUTO-GIA HẠN THÀNH CÔNG CHO KHÁCH {user_doc.id} ĐẾN {new_expire.strftime('%Y-%m-%d')}")
+                        return jsonify({"success": True, "message": "Gia hạn tự động thành công"}), 200
+
+        # Nếu không đúng cú pháp hoặc thiếu tiền, vẫn báo OK để SePay không gửi lại nhiều lần
+        return jsonify({"success": True, "message": "Giao dịch bị bỏ qua (Sai cú pháp/Thiếu tiền)"}), 200
+
+    except Exception as e:
+        print("❌ Lỗi Webhook:", e)
+        return jsonify({"success": False, "message": "Lỗi nội bộ Server"}), 500
+
+
+
 # ====================================================================
 # 🔥 BỘ CHUYỂN ĐỔI XUYÊN THỦNG SSL CŨ CỦA MOBIFONE
 # ====================================================================
@@ -44,77 +126,8 @@ http_session = requests.Session()
 http_session.mount("https://", LegacySSLAdapter())
 
 
-app = Flask(__name__)
-CORS(app) # Cho phép React gọi vào
 
-# ====================================================================
-# 🔥 HỆ THỐNG BẢO MẬT & CẤP PHÉP BẢN QUYỀN (LICENSE MANAGER)
-# ====================================================================
-# Đây là "Chìa khóa bí mật" của riêng CEO. TUYỆT ĐỐI KHÔNG TIẾT LỘ CHO AI.
-SECRET_SALT = "OMNISALE_CEO_PRO_2026_V1"
 
-def get_machine_code():
-    """Đọc thông số phần cứng để tạo Mã Máy duy nhất"""
-    try:
-        # Lấy địa chỉ MAC của Card mạng
-        mac_num = hex(uuid.getnode()).replace('0x', '').upper()
-        mac_str = '-'.join(mac_num[i: i + 2] for i in range(0, 11, 2))
-        
-        # Lấy Hệ điều hành và Tên máy tính
-        sys_info = f"{platform.system()}-{platform.node()}"
-        
-        # Băm (Hash) để tạo ra chuỗi 16 ký tự tuyệt đẹp
-        raw_id = f"{mac_str}-{sys_info}".encode('utf-8')
-        machine_hash = hashlib.md5(raw_id).hexdigest().upper()
-        
-        return f"{machine_hash[:4]}-{machine_hash[4:8]}-{machine_hash[8:12]}-{machine_hash[12:16]}"
-    except Exception:
-        return "UNKNOWN-MACHINE-CODE"
-
-@app.route('/api/license/info', methods=['GET'])
-def get_license_info():
-    """Gửi Mã Máy lên cho màn hình Web hiển thị"""
-    machine_id = get_machine_code()
-    return jsonify({"success": True, "machineId": machine_id})
-
-@app.route('/api/license/verify', methods=['POST'])
-def verify_license():
-    """Kiểm tra Key và Ngày hết hạn"""
-    data = request.json
-    key_input = data.get('key', '').strip().upper()
-    machine_id = get_machine_code()
-    
-    # 1. Kiểm tra cấu trúc Key (Phải có 4 cụm: YYYYMMDD-XXXX-XXXX-XXXX)
-    parts = key_input.split('-')
-    if len(parts) != 4:
-        return jsonify({"success": False, "message": "❌ Định dạng Key không hợp lệ!"})
-        
-    expire_str = parts[0]  # Lấy cục đầu tiên (Ngày hết hạn)
-    sig_input = "".join(parts[1:]) # Gom 3 cục sau lại thành chữ ký
-    
-    # 2. Kiểm tra xem Key này có phải do chính CEO tạo ra cho máy này không? (Chống làm giả ngày)
-    raw_data = f"{machine_id}{expire_str}{SECRET_SALT}".encode('utf-8')
-    expected_sig = hashlib.md5(raw_data).hexdigest().upper()[:12]
-    
-    if sig_input != expected_sig:
-        return jsonify({"success": False, "message": "❌ Mã kích hoạt sai hoặc dùng cho máy khác!"})
-        
-    # 3. Kiểm tra Ngày Hết Hạn
-    try:
-        expire_date = datetime.strptime(expire_str, "%Y%m%d")
-        current_date = datetime.now()
-        
-        if current_date > expire_date:
-            return jsonify({"success": False, "message": f"❌ Key đã hết hạn vào ngày {expire_date.strftime('%d/%m/%Y')}. Vui lòng gia hạn!"})
-            
-    except ValueError:
-        return jsonify({"success": False, "message": "❌ Key bị lỗi dữ liệu ngày tháng!"})
-
-    # Vượt qua mọi bài test -> Cho phép vào phần mềm
-    return jsonify({
-        "success": True, 
-        "message": f"✅ Kích hoạt thành công! Hạn dùng đến: {expire_date.strftime('%d/%m/%Y')}"
-    })
 # ====================================================================
 # 1. API KIỂM TRA KẾT NỐI (TEST LOGIN & LẤY DẢI HÓA ĐƠN)
 # ====================================================================
