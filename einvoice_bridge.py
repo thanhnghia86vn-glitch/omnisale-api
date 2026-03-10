@@ -231,7 +231,8 @@ def issue_einvoice():
     elif provider == 'MOBIFONE':
         api_url = data.get('apiURL')       
         username = data.get('apiKey')      
-        password = data.get('apiSecret')   
+        password = data.get('apiSecret')
+
             
         if not api_url or not username or not password:
             return jsonify({"success": False, "message": "Thiếu cấu hình API URL, Username hoặc Password cho MobiFone!"})
@@ -368,11 +369,10 @@ def issue_einvoice():
     elif provider == 'BKAV':
         api_url = data.get('apiURL')       
         partner_guid = data.get('apiKey')  # PartnerGUID
-        password = data.get('apiSecret')   # MẬT KHẨU (TOKEN) DÙNG ĐỂ LÀM CHÌA KHÓA AES
         
-        if not api_url or not partner_guid or not password:
-            return jsonify({"success": False, "message": "Thiếu API URL, PartnerGUID hoặc Mật khẩu Token của BKAV!"})
-
+        # Bỏ bắt buộc kiểm tra password
+        if not api_url or not partner_guid:
+            return jsonify({"success": False, "message": "Thiếu API URL hoặc PartnerGUID của BKAV!"})
         try:
             print(f"\n🚀 BẮT ĐẦU XUẤT HÓA ĐƠN BKAV CHO ĐƠN: {order['id']}")
             clean_url = api_url.rstrip('/')
