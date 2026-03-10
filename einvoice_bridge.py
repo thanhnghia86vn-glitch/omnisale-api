@@ -450,33 +450,30 @@ def issue_einvoice():
             # Bơm vào Object chuẩn bị gửi BKAV
             invoice_obj = {
                 "InvoiceTypeID": 1, 
-                # "InvoiceStatusID": 1, 
-                "InvoiceForm": invoice_form,      
-                "InvoiceSerial": invoice_serial,
-                "InvoiceNo": 0,  
                 "InvoiceDate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                "BuyerCode": "",
-                
-                # SỬ DỤNG KẾT QUẢ TỪ BỘ LỌC 3 TRƯỜNG HỢP
                 "BuyerName": buyer_name, 
-                "BuyerUnitName": buyer_unit_name, 
                 "BuyerTaxCode": tax_code, 
+                "BuyerUnitName": buyer_unit_name, 
                 "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
                 "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
-                
-                # --- NHÓM THÔNG TIN NGƯỜI NHẬN ---
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
-                "ReceiverMobile": "", # ÉP BUỘC TRỐNG SĐT THEO LỆNH CỦA BKAV
-                "ReceiverName": cus_name,    
+                "ReceiverMobile": "", 
                 "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
+                "ReceiverName": cus_name,    
                 "Note": "Xuất từ OmniSale Pro", 
+                
+                # 👉 CHÌA KHÓA VÀNG: ÉP MÃ ĐƠN HÀNG VÀO BILLCODE ĐỂ KHÔNG BAO GIỜ BỊ NULL
                 "BillCode": str(order.get('id', 'BILL-01')), 
                 
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
-                "UserDefine": ""
+                "InvoiceStatusID": 1,
+                "InvoiceForm": invoice_form,      
+                "InvoiceSerial": invoice_serial, 
+                "InvoiceNo": 0, 
+                "UserDefine": "" 
             }
 
             command_object = [{
