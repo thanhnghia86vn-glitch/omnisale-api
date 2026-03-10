@@ -448,7 +448,7 @@ def issue_einvoice():
             invoice_serial = client_config.get('invoiceSerial', '').strip()
 
             # =================================================================
-            # GÓI DỮ LIỆU "BỌC THÉP" - ĐẦY ĐỦ 100% TRƯỜNG THEO POSTMAN BKAV
+            # GÓI DỮ LIỆU CHUẨN MỰC - KHÔNG CHỨA LOGIC XUNG ĐỘT
             # =================================================================
             invoice_obj = {
                 "InvoiceTypeID": 1, 
@@ -457,32 +457,26 @@ def issue_einvoice():
                 "BuyerTaxCode": tax_code, 
                 "BuyerUnitName": buyer_unit_name, 
                 "BuyerAddress": cus_address if cus_address else "Khách mua lẻ", 
-                "BuyerBankAccount": "", 
                 "PayMethodID": 3, 
                 "ReceiveTypeID": 4, 
                 "ReceiverEmail": cus_email, 
-                "ReceiverMobile": "",
-                "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
                 "ReceiverName": cus_name,    
+                "ReceiverAddress": cus_address if cus_address else "Tại cửa hàng", 
                 "Note": "Xuất từ OmniSale Pro", 
                 "BillCode": str(order.get('id', 'BILL-01')), 
                 "CurrencyID": "VND", 
                 "ExchangeRate": 1.0, 
                 
-                # PHỤC HỒI CÁC TRƯỜNG BẮT BUỘC ĐỂ C# KHÔNG BÁO LỖI NULL
-                "InvoiceStatusID": 1,
+                # CÁC TRƯỜNG ĐỊNH DẠNG HÓA ĐƠN
                 "InvoiceForm": invoice_form,      
                 "InvoiceSerial": invoice_serial, 
-                "InvoiceNo": 0, 
-                "UserDefine": "",
-                "OriginalInvoiceIdentify": "" 
+                "InvoiceNo": 0
+                # TUYỆT ĐỐI KHÔNG truyền OriginalInvoiceIdentify để tránh lỗi HĐ thay thế
             }
 
             list_details = []
             for idx, item in enumerate(order['items']):
                 list_details.append({
-                    "ItemTypeID": 0,
-                    "ItemCode": item.get('id', f"SP{idx}"), 
                     "ItemName": item['name'],
                     "UnitName": "Cái",
                     "Qty": float(item['qty']),
@@ -491,20 +485,14 @@ def issue_einvoice():
                     "TaxRateID": 4, 
                     "TaxRate": -1.0,
                     "TaxAmount": 0.0,
-                    "IsDiscount": False,
-                    "IsIncrease": False, 
-                    "DiscountRate": 0.0,    
-                    "DiscountAmount": 0.0, 
-                    "UserDefineDetails": ""  
+                    "IsDiscount": False
                 })
 
             command_object = [{
                 "Invoice": invoice_obj,
                 "ListInvoiceDetailsWS": list_details,
-                "ListInvoiceAttachFileWS": [], # PHỤC HỒI MẢNG RỖNG NÀY
-                "PartnerInvoiceID": 0,
-                "PartnerInvoiceStringID": str(order.get('id', 'BILL-01')),
-                "IsSetInvoiceNo": True # BỔ SUNG THEO POSTMAN
+                "PartnerInvoiceStringID": str(order.get('id', 'BILL-01'))
+                # TUYỆT ĐỐI KHÔNG truyền IsSetInvoiceNo vào đây
             }]
 
             json_payload = json.dumps(command_object, ensure_ascii=False)
@@ -513,8 +501,10 @@ def issue_einvoice():
             print(json_payload)
             print("--------------------------------------------------\n")
 
-            # GIỮ NGUYÊN LỆNH 100 VÀ BASE64 (KHÔNG AES)
-            inner_xml = f"<CommandData><CmdType>100</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
+            # 👉 SỬ DỤNG LỆNH 101: Web truyền Mẫu/Ký hiệu lên, BKAV tự động cấp Số hóa đơn
+            inner_xml = f"<CommandData><CmdType>101</CmdType><CommandObject><![CDATA[{json_payload}]]></CommandObject></CommandData>"
+            
+            # ĐÓNG GÓI BASE64 (KHÔNG AES)
             base64_encrypted_data = base64.b64encode(inner_xml.encode('utf-8')).decode('utf-8')
 
             # =========================================================
