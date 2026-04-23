@@ -48,64 +48,102 @@ CORS(app) # Cho phép React gọi vào
 # =========================================================
 # CỔNG NHẬN BIẾN ĐỘNG SỐ DƯ TỪ SEPAY.VN
 # =========================================================
+
 @app.route('/api/payment/webhook', methods=['POST'])
 def sepay_webhook():
     try:
         data = request.json
-        print("\n💰 [SEPAY WEBHOOK] CÓ TIỀN VỀ:", data)
+        print("\n💰 [SEPAY WEBHOOK] TỔNG ĐÀI NHẬN BIẾN ĐỘNG:", data)
 
         amount_in = float(data.get('transferAmount', 0))
         transfer_content = data.get('content', '').upper()
 
-        # Kiểm tra xem có đúng cú pháp hệ thống không (Ví dụ: OSPRO 1A2B3C 1Y)
-        if "OSPRO" in transfer_content:
-            parts = transfer_content.split()
+        # =====================================================================
+        # LUỒNG 1: KHÁCH HÀNG GIA HẠN PHẦN MỀM (Hỗ trợ cả OS và OSPRO)
+        # Cú pháp mong đợi: OS 1SXRBX 1Y hoặc OSPRO 1SXRBX 1Y
+        # =====================================================================
+        sub_match = re.search(r'(OS|OSPRO)\s+([A-Z0-9]+)\s+([1-3]Y|[1-6]M)', transfer_content)
+        
+        # =====================================================================
+        # LUỒNG 2: THỰC KHÁCH THANH TOÁN TIỀN BÀN/ĐƠN HÀNG TẠI QUÁN
+        # Cú pháp mong đợi: DH 89A2BC hoặc BILL 89A2BC (DH/BILL + Mã Đơn Hàng)
+        # =====================================================================
+        order_match = re.search(r'(DH|BILL)\s*([A-Z0-9]+)', transfer_content)
+
+
+        # ---------------------------------------------------------------------
+        # XỬ LÝ LUỒNG 1: GIA HẠN PHẦN MỀM
+        # ---------------------------------------------------------------------
+        if sub_match:
+            project_name = sub_match.group(1)  # Bắt được OS hoặc OSPRO
+            user_id_short = sub_match.group(2) # Lấy UID khách (Ví dụ: 1SXRBX)
+            plan_code = sub_match.group(3)     # Lấy mã gói (Ví dụ: 1Y)
             
-            if len(parts) >= 3:
-                user_id_short = parts[1] # Cắt lấy 6 ký tự UID
-                plan_code = parts[2]     # Lấy mã gói (1Y, 2Y, 3Y)
+            print(f"🔄 [LUỒNG GIA HẠN] Dự án: {project_name} | UID: {user_id_short} | Gói: {plan_code}")
 
-                # Quy đổi gói cước ra số ngày
-                days_to_add = 0
-                if plan_code == "1Y" and amount_in >= 1000000: days_to_add = 365
-                elif plan_code == "2Y" and amount_in >= 1800000: days_to_add = 730
-                elif plan_code == "3Y" and amount_in >= 2500000: days_to_add = 1095
+            # Quy đổi gói cước ra số ngày
+            days_to_add = 0
+            if plan_code == "1Y": days_to_add = 365
+            elif plan_code == "2Y": days_to_add = 730
+            elif plan_code == "3Y": days_to_add = 1095
 
-                if days_to_add > 0:
-                    # 1. Chạy vào Két sắt tìm đúng ông khách có 6 mã UID này
-                    users_ref = db_admin.collection("users")
-                    # Lệnh tìm kiếm theo "Bắt đầu bằng..." trong Firestore
-                    query = users_ref.where("uid", ">=", user_id_short).where("uid", "<=", user_id_short + '\uf8ff').limit(1).stream()
+            if days_to_add > 0:
+                # Tìm khách hàng trên Firebase
+                users_ref = db_admin.collection("users")
+                query = users_ref.where("uid", ">=", user_id_short).where("uid", "<=", user_id_short + '\uf8ff').limit(1).stream()
+                
+                for user_doc in query:
+                    current_data = user_doc.to_dict()
+                    current_expire_str = current_data.get('expireDate')
 
-                    for user_doc in query:
-                        current_data = user_doc.to_dict()
-                        current_expire_str = current_data.get('expireDate')
+                    if current_expire_str:
+                        current_expire = datetime.strptime(current_expire_str, "%Y-%m-%d")
+                    else:
+                        current_expire = datetime.now()
 
-                        # 2. Tính toán ngày hết hạn mới
-                        if current_expire_str:
-                            current_expire = datetime.strptime(current_expire_str, "%Y-%m-%d")
-                        else:
-                            current_expire = datetime.now()
+                    today = datetime.now()
+                    base_date = current_expire if current_expire > today else today
+                    new_expire = base_date + timedelta(days=days_to_add)
 
-                        today = datetime.now()
-                        # Nếu đang còn hạn -> Cộng dồn. Nếu đã hết hạn -> Tính từ hôm nay
-                        base_date = current_expire if current_expire > today else today
-                        new_expire = base_date + timedelta(days=days_to_add)
+                    user_doc.reference.update({
+                        "expireDate": new_expire.strftime("%Y-%m-%d")
+                    })
+                    print(f"🎉 KÍCH HOẠT THÀNH CÔNG: {user_doc.id} -> {new_expire.strftime('%Y-%m-%d')}")
+                    return jsonify({"success": True, "message": "Gia hạn phần mềm thành công"}), 200
+                
+                print(f"⚠️ Không tìm thấy UID: {user_id_short}")
+                return jsonify({"success": True, "message": "Không tìm thấy UserID tương ứng"}), 200
 
-                        # 3. Ghi đè ngày mới lên Firebase
-                        user_doc.reference.update({
-                            "expireDate": new_expire.strftime("%Y-%m-%d")
-                        })
-                        print(f"🎉 AUTO-GIA HẠN THÀNH CÔNG CHO KHÁCH {user_doc.id} ĐẾN {new_expire.strftime('%Y-%m-%d')}")
-                        return jsonify({"success": True, "message": "Gia hạn tự động thành công"}), 200
+        # ---------------------------------------------------------------------
+        # XỬ LÝ LUỒNG 2: THANH TOÁN ĐƠN HÀNG TẠI QUÁN
+        # ---------------------------------------------------------------------
+        elif order_match:
+            prefix = order_match.group(1)      # Bắt được chữ DH hoặc BILL
+            order_id_short = order_match.group(2) # Bắt được mã đơn hàng
+            
+            print(f"🍽️ [LUỒNG F&B] Thanh toán đơn hàng: {order_id_short} | Tiền vô: {amount_in}đ")
+            
+            # TẠI ĐÂY SẾP VIẾT LOGIC CHO F&B:
+            # 1. Quét database tìm đơn hàng có mã `order_id_short`
+            # 2. So sánh `amount_in` có đủ hoặc bằng tổng bill không
+            # 3. Đổi trạng thái đơn hàng -> "Đã thanh toán"
+            # 4. Gửi tín hiệu Firebase để máy POS tại quầy TING TING chốt bàn.
+            
+            # Code mẫu giả lập (Sếp sẽ điền logic Firebase vào sau):
+            # db_admin.collection("orders").document(order_id_short).update({"status": "PAID"})
+            
+            return jsonify({"success": True, "message": f"Đã thanh toán đơn {order_id_short}"}), 200
 
-        # Nếu không đúng cú pháp hoặc thiếu tiền, vẫn báo OK để SePay không gửi lại nhiều lần
-        return jsonify({"success": True, "message": "Giao dịch bị bỏ qua (Sai cú pháp/Thiếu tiền)"}), 200
+        # ---------------------------------------------------------------------
+        # XỬ LÝ LUỒNG 3: GIAO DỊCH CHUYỂN TIỀN CÁ NHÂN HOẶC RÁC
+        # ---------------------------------------------------------------------
+        else:
+            print(f"ℹ️ Giao dịch không khớp cú pháp hệ thống. Nội dung: {transfer_content}")
+            return jsonify({"success": True, "message": "Giao dịch ghi nhận thủ công"}), 200
 
     except Exception as e:
-        print("❌ Lỗi Webhook:", e)
+        print("❌ Lỗi Server Webhook:", e)
         return jsonify({"success": False, "message": "Lỗi nội bộ Server"}), 500
-
 
 
 # ====================================================================
